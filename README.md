@@ -1,56 +1,71 @@
-# Welcome to your Expo app 👋
+# CashMine payback (take-home)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo (SDK 58) web app for viewing payback balances and claiming them, built for a phone screen (~390 px).
 
-## Get started
+**Live:** https://cashmine-rehearsal.d-a-stiranets.workers.dev
 
-1. Install dependencies
+Decisions and known issues are in [NOTES.md](NOTES.md).
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Run locally
 
 ```bash
-npm run reset-project
+npm install
+npm run web
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Open the URL Expo prints and paste your API token on the first screen. The token is kept only in this
+browser's localStorage, never in the code or the build. The API is called directly from the browser
+(`API_BASE_URL` in `src/lib/api.ts`).
 
-### Other setup steps
+## Test
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+npm test            # unit tests (Jest)
+npm run typecheck
+npm run lint
+```
 
-## Learn more
+## Deploy
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npm run deploy
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Builds the web app (`expo export -p web`) and uploads `dist/` to Cloudflare Workers as static assets
+(`wrangler.toml`). It needs your own Cloudflare account (`npx wrangler login`), and there are no secrets to set.
 
-## Join the community
+## What works
 
-Join our community of developers creating universal apps.
+- **Token:**
+  - Asked for on first open and checked against the API before saving. A rejected token (401) gets an inline error; if the check fails for any other reason, the token is saved anyway.
+  - Changeable from the "Token" link in the Balances header.
+  - Any 401 sends the user back to the token screen.
+- **Balances:**
+  - Each asset shows available, pending and claiming in its own unit (exact server amounts) and in USD.
+  - The header shows the total available in USD, with the pending and claiming totals below it.
+  - "Updated Xs ago" is based on the snapshot time. Balances refresh every 15 s, and there's a Refresh button.
+  - If a refresh fails while data is on screen, the data stays with an inline "Couldn't refresh" message and Retry. A separate message says when the browser is offline.
+  - Loading, error and empty states are handled.
+- **Claim:**
+  - Amount field (a comma is accepted as the decimal point) and a Max button.
+  - Checked against the API rules: amount format, the asset's number of decimal places, the minimum and the available amount. The amount must also be more than the fee.
+  - Shows the fee and the amount you receive, and a destination picker when there is more than one destination.
+  - A confirm step comes before submitting, and Confirm is disabled while offline.
+- **Claims are never sent twice:**
+  - Each claim is saved in localStorage, with its Idempotency-Key and exact request body, before it is sent. Saved claims are kept per token.
+  - If the result is unknown (network error, 15 s timeout, 5xx/504, or a response that can't be read), the app retries with the same key and body. A 429 waits the time the server asks for.
+  - After 2 minutes it shows "Couldn't confirm yet" with a Check again button. Unfinished claims are retried again after a reload.
+  - While a claim is being checked or is still pending, no new claim can be started for that asset.
+- **Tracking:**
+  - `/claims/[id]` follows a claim until it completes or fails and shows the failure reason.
+  - Pending claims are also checked every 2.5 s in the background.
+- **Balance right after a claim:** a claim the current snapshot doesn't include yet is taken off available straight away. A still-pending claim is also added to claiming. An older snapshot can't undo this, and a failed claim is no longer subtracted.
+- **Tests:** 49 unit tests covering amount parsing and validation, the fee and receive amount, USD totals, the balance adjustment, and the claim sender (retries, idempotency, locking, 409/429/unknown outcomes).
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## What doesn't (yet)
+
+- **Activity** (the paginated history) isn't built.
+- **Pull-to-refresh** doesn't work on web (react-native-web ignores it), so use the Refresh button.
+- **Two open tabs** don't share claim state.
+- **A claim refused in the background** (e.g. after a reload) only shows its message on that asset's Claim screen.
+- **Only tested on web**, not as a native iOS/Android build.
