@@ -9,12 +9,15 @@ type HeaderProps = {
   balances: Balances;
   refreshing: boolean;
   onRefresh: () => void;
-  /** Set when the last background refresh failed but older data is still shown. */
-  refreshFailed: boolean;
+  /**
+   * Why older data is on screen: 'offline' while the query is paused waiting
+   * for the network, 'failed' when the last refresh failed.
+   */
+  staleReason: 'offline' | 'failed' | null;
 };
 
 /** Totals in USD and data freshness. Ticks every second on its own so the list does not re-render. */
-export function BalancesHeader({ balances, refreshing, onRefresh, refreshFailed }: HeaderProps) {
+export function BalancesHeader({ balances, refreshing, onRefresh, staleReason }: HeaderProps) {
   const { colors } = useTheme();
   const now = useNow();
   const { items, asOf } = balances;
@@ -41,7 +44,13 @@ export function BalancesHeader({ balances, refreshing, onRefresh, refreshFailed 
         </Pressable>
       </View>
 
-      {refreshFailed ? (
+      {staleReason === 'offline' ? (
+        <View style={[styles.banner, { borderColor: colors.border }]}>
+          <Text style={[styles.bannerText, { color: colors.text }]}>
+            You&apos;re offline. Showing data from {formatTime(asOf)}.
+          </Text>
+        </View>
+      ) : staleReason === 'failed' ? (
         <View style={[styles.banner, { borderColor: colors.notification }]}>
           <Text style={[styles.bannerText, { color: colors.text }]}>
             Couldn&apos;t refresh, data from {formatTime(asOf)}.

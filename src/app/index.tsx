@@ -8,14 +8,33 @@ import { useBalances } from '@/lib/balances';
 
 export default function BalancesScreen() {
   const { colors } = useTheme();
-  const { data, isPending, isError, isRefetchError, error, refetch } = useBalances();
-  // Only a refresh the user asked for shows a spinner; the 15 s background refetch stays silent.
-  const [refreshing, setRefreshing] = useState(false);
+  const { data, isPending, isError, isRefetchError, error, refetch, fetchStatus } = useBalances();
+  // With the default networkMode 'online', TanStack Query does not fail while the
+  // browser is offline: it pauses the fetch until the connection returns.
+  const offline = fetchStatus === 'paused';
+  // Only a refresh the user asked for shows a spinner, and only while a request
+  // is really in flight; the 15 s background refetch stays silent.
+  const [refreshRequested, setRefreshRequested] = useState(false);
+  const refreshing = refreshRequested && fetchStatus === 'fetching';
 
   async function refresh() {
-    setRefreshing(true);
+    setRefreshRequested(true);
     await refetch();
-    setRefreshing(false);
+    setRefreshRequested(false);
+  }
+
+  // Nothing to show yet and no network: say so instead of spinning forever.
+  // The paused fetch resumes by itself when the connection returns.
+  if (!data && offline) {
+    return (
+      <Screen>
+        <View style={styles.center}>
+          <Text style={[styles.message, { color: colors.text }]}>
+            You&apos;re offline. Balances will load when you&apos;re back online.
+          </Text>
+        </View>
+      </Screen>
+    );
   }
 
   if (isPending) {
@@ -52,7 +71,7 @@ export default function BalancesScreen() {
             balances={data}
             refreshing={refreshing}
             onRefresh={() => void refresh()}
-            refreshFailed={isRefetchError}
+            staleReason={offline ? 'offline' : isRefetchError ? 'failed' : null}
           />
         }
         ListEmptyComponent={<Text style={[styles.empty, { color: colors.text }]}>No assets yet.</Text>}
@@ -71,6 +90,7 @@ export default function BalancesScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 16 },
+  message: { textAlign: 'center' },
   retry: { padding: 8 },
   empty: { textAlign: 'center', marginTop: 32 },
   separator: { height: StyleSheet.hairlineWidth },
