@@ -36,18 +36,21 @@ export function adjustBalances(balances: Balances, records: readonly ClaimRecord
   return {
     ...balances,
     items: balances.items.map((item) => {
-      const own = claims.filter((c) => c.asset === item.asset);
+      const own = claims
+        .filter((c) => c.asset === item.asset)
+        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
       if (own.length === 0) return item;
-      const sum = (list: typeof own) => list.reduce((total, c) => total.plus(c.amount), new Big(0));
-      // Every claim has left available. Only a pending one counts as claiming:
-      // a completed claim has already left claiming too.
-      const available = new Big(item.available).minus(sum(own));
-      return {
-        ...item,
-        // Never show a negative balance if the server already moved part of it.
-        available: (available.lt(0) ? new Big(0) : available).toFixed(),
-        claiming: new Big(item.claiming).plus(sum(own.filter((c) => c.status === 'pending'))).toFixed(),
-      };
+      let available = new Big(item.available);
+      let claiming = new Big(item.claiming);
+      for (const claim of own) {
+        // A claim larger than what is left cannot have come out of this
+        // snapshot's available: the snapshot must already include it.
+        if (new Big(claim.amount).gt(available)) continue;
+        available = available.minus(claim.amount);
+        // Only a pending claim counts as claiming; a completed one has left claiming too.
+        if (claim.status === 'pending') claiming = claiming.plus(claim.amount);
+      }
+      return { ...item, available: available.toFixed(), claiming: claiming.toFixed() };
     }),
   };
 }

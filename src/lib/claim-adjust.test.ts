@@ -57,8 +57,9 @@ describe('snapshotIncludes', () => {
   });
 
   it('compares times, not strings', () => {
-    // Same instant written with an offset: string comparison would get this wrong.
-    expect(snapshotIncludes('2026-10-21T08:00:08+02:00', T_CLAIM)).toBe(true);
+    // 08:00:06+02:00 is 06:00:06Z, one second before the claim, but sorts after it as a string.
+    expect('2026-10-21T08:00:06+02:00' > T_CLAIM).toBe(true);
+    expect(snapshotIncludes('2026-10-21T08:00:06+02:00', T_CLAIM)).toBe(false);
   });
 });
 
@@ -110,8 +111,22 @@ describe('adjustBalances', () => {
     expect(eth(adjustBalances(snapshot(T0), [unknown, rejected])).available).toBe('1.5');
   });
 
-  it('never shows a negative balance', () => {
-    expect(eth(adjustBalances(snapshot(T0), [created({ amount: '2' })])).available).toBe('0');
+  it('skips a claim larger than available: the snapshot must already include it', () => {
+    const adjusted = eth(adjustBalances(snapshot(T0), [created({ amount: '2' })]));
+    expect(adjusted.available).toBe('1.5');
+    expect(adjusted.claiming).toBe('0');
+  });
+
+  it('applies claims oldest first and skips only the one that no longer fits', () => {
+    const adjusted = eth(
+      adjustBalances(snapshot(T0), [
+        created({ id: 'clm_2', amount: '1', createdAt: '2026-10-21T06:00:09.000Z' }),
+        created({ amount: '1' }),
+      ]),
+    );
+    // clm_1 (06:00:07) fits: 1.5 -> 0.5. clm_2 (1) no longer fits, so it is skipped.
+    expect(adjusted.available).toBe('0.5');
+    expect(adjusted.claiming).toBe('1');
   });
 });
 

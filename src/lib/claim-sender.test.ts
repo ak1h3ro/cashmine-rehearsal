@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 
 import { checkAgain, ClaimInProgressError, ClaimNotSavedError, submitClaim } from '@/lib/claim-sender';
 import { currentBucket, readRecords, syncClaim } from '@/lib/claim-store';
-import type { Claim } from '@/lib/claims';
 import { setToken } from '@/lib/token';
 
 jest.mock('expo-router', () => ({ router: { replace: jest.fn() } }));
@@ -48,6 +47,14 @@ function sentRequests() {
   }));
 }
 
+let claimCounter = 0;
+
+/** Answers a POST with a claim built from its own body, so each asset gets its own claim. */
+function respondWithClaimFromBody(_url: string, init: RequestInit) {
+  const { asset, amount } = JSON.parse(init.body as string) as { asset: string; amount: string };
+  return Promise.resolve(json(201, { ...CLAIM, id: `clm_${asset}_${++claimCounter}`, asset, amount }));
+}
+
 function record(key: string) {
   return readRecords(currentBucket()!).find((r) => r.key === key)!;
 }
@@ -73,10 +80,21 @@ afterEach(() => {
 
 describe('submitClaim', () => {
   it('saves the claim before sending it', async () => {
-    fetchMock.mockResolvedValue(json(201, CLAIM));
-    const key = submitClaim(INPUT, crypto.randomUUID());
-    expect(record(key).state).toBe('checking');
+    const key = crypto.randomUUID();
+    const savedWhenSent: unknown[] = [];
+    fetchMock.mockImplementation(async () => {
+      // Read straight from localStorage, not the in-memory cache.
+      const stored = JSON.parse(localStorage.getItem(`cashmine.claims.${currentBucket()}`) ?? '[]') as {
+        key: string;
+        body: string;
+      }[];
+      savedWhenSent.push(stored.find((r) => r.key === key)?.body);
+      return json(201, CLAIM);
+    });
+    submitClaim(INPUT, key);
     await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(savedWhenSent).toEqual([JSON.stringify({ asset: 'ETH', amount: '0.5', destinationId: 'dest_wallet' })]);
     expect(record(key).state).toBe('created');
     expect(record(key).claim?.id).toBe('clm_1');
   });
@@ -171,18 +189,84 @@ describe('submitClaim', () => {
   });
 
   it('locks the asset while the server reports the claim pending, and frees it once it settles', async () => {
-    fetchMock.mockResolvedValue(json(201, CLAIM));
-    submitClaim(INPUT, crypto.randomUUID());
+    fetchMock.mockImplementation(respondWithClaimFromBody);
+    const ethKey = submitClaim(INPUT, crypto.randomUUID());
     await flush();
+    const ethClaim = record(ethKey).claim!;
+    expect(ethClaim.asset).toBe('ETH');
+
     // No time limit: still locked much later if the status is still pending.
     jest.advanceTimersByTime(10 * 60_000);
     expect(() => submitClaim(INPUT, crypto.randomUUID())).toThrow(ClaimInProgressError);
-    // Other assets are not blocked.
-    expect(() => submitClaim({ ...INPUT, asset: 'BTC' }, crypto.randomUUID())).not.toThrow();
+
+    // Other assets are not blocked, and get their own claim.
+    const btcKey = submitClaim({ ...INPUT, asset: 'BTC' }, crypto.randomUUID());
+    await flush();
+    expect(record(btcKey).claim?.asset).toBe('BTC');
+    expect(record(btcKey).claim?.id).not.toBe(ethClaim.id);
 
     // What PendingClaimsPoller saves when GET /v1/claims/{id} reports the final status.
-    syncClaim({ ...CLAIM, status: 'completed', updatedAt: '2026-10-21T06:00:27.000Z' } as Claim);
-    expect(() => submitClaim(INPUT, crypto.randomUUID())).not.toThrow();
+    syncClaim({ ...ethClaim, status: 'completed', updatedAt: '2026-10-21T06:00:27.000Z' });
+    const nextKey = submitClaim(INPUT, crypto.randomUUID());
+    await flush();
+    expect(record(nextKey).state).toBe('created');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('treats a 409 as final: nothing created, no retry', async () => {
+    fetchMock.mockResolvedValue(json(409, { error: { code: 'IDEMPOTENCY_MISMATCH', message: 'mismatch' } }));
+    const key = submitClaim(INPUT, crypto.randomUUID());
+    await flush();
+    await jest.advanceTimersByTimeAsync(130_000);
+    expect(record(key).state).toBe('rejected');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits retryAfterMs after a 429, then retries with the same key and body', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        json(429, { error: { code: 'RATE_LIMITED', message: 'Too many requests', retryAfterMs: 2300 } }),
+      )
+      .mockResolvedValueOnce(json(201, CLAIM));
+    const key = submitClaim(INPUT, crypto.randomUUID());
+    await flush();
+
+    await jest.advanceTimersByTimeAsync(2299);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const [first, second] = sentRequests();
+    expect(second).toEqual(first);
+    expect(first.key).toBe(key);
+    expect(record(key).state).toBe('created');
+  });
+
+  it('treats a 2xx it cannot read as unknown and retries with the same key', async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(201, { id: 'clm_1', amount: 0.5 })) // fails the Claim schema
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: { get: () => null },
+        json: async () => {
+          throw new SyntaxError('Unexpected end of JSON input');
+        },
+      } as unknown as Response)
+      .mockResolvedValueOnce(json(200, CLAIM));
+    const key = submitClaim(INPUT, crypto.randomUUID());
+    await flush();
+    expect(record(key).state).toBe('checking');
+    expect(record(key).uncertain).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(1000);
+    await jest.advanceTimersByTimeAsync(2000);
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(new Set(sentRequests().map((r) => r.key))).toEqual(new Set([key]));
+    expect(record(key).state).toBe('created');
   });
 
   it('never sends a claim with a different token', async () => {
