@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
 
-import { ClaimSchema } from '@/lib/claims';
+import { type Claim, ClaimSchema } from '@/lib/claims';
 import { getToken, subscribeToken } from '@/lib/token';
 
 /**
@@ -151,4 +151,14 @@ function snapshot(): readonly ClaimRecord[] {
 /** Claims of the current token. */
 export function useClaimRecords(): readonly ClaimRecord[] {
   return useSyncExternalStore(subscribeClaims, snapshot, () => EMPTY);
+}
+
+/** Keeps a created record's claim up to date (e.g. from the tracking screen), so a failure drops its adjustment. */
+export function syncClaim(claim: Claim) {
+  const bucket = currentBucket();
+  if (!bucket) return;
+  const record = readRecords(bucket).find((r) => r.claim?.id === claim.id);
+  if (record && (record.claim?.status !== claim.status || record.claim?.updatedAt !== claim.updatedAt)) {
+    updateRecord(bucket, record.key, { claim });
+  }
 }

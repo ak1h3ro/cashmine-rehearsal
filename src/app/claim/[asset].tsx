@@ -4,14 +4,14 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import { ClaimChecking, ClaimForm } from '@/components/claim';
 import { Screen } from '@/components/screen';
-import { useBalances } from '@/lib/balances';
+import { useAdjustedBalances } from '@/lib/balances';
 import { currentBucket, isUnresolved, removeRecord, useClaimRecords } from '@/lib/claim-store';
 import { useClaimOptions } from '@/lib/claims';
 
 export default function ClaimScreen() {
   const { colors } = useTheme();
   const { asset } = useLocalSearchParams<{ asset: string }>();
-  const balances = useBalances();
+  const balances = useAdjustedBalances();
   const options = useClaimOptions(asset);
   const records = useClaimRecords();
   const [submittedKey, setSubmittedKey] = useState<string | null>(null);

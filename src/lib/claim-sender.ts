@@ -20,6 +20,13 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export class ClaimNotSavedError extends Error {}
 
+let onClaimCreated: (() => void) | undefined;
+
+/** Called whenever a claim is confirmed to exist (used to refetch balances at once). */
+export function setOnClaimCreated(handler: (() => void) | undefined) {
+  onClaimCreated = handler;
+}
+
 type NewClaim = {
   asset: string;
   amount: string;
@@ -102,6 +109,7 @@ async function send(bucket: string, key: string) {
     });
     // 201, or 200 replaying the original claim (which may already be settled).
     updateRecord(bucket, key, { state: 'created', claim });
+    onClaimCreated?.();
     return;
   } catch (error) {
     if (error instanceof ApiError && error.kind === 'http') {

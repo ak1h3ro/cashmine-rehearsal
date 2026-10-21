@@ -64,10 +64,16 @@ export function BalancesHeader({ balances, refreshing, onRefresh, staleReason }:
   );
 }
 
-export function BalanceRow({ balance }: { balance: Balance }) {
+type RowProps = {
+  balance: Balance;
+  /** Amount of a claim on this asset whose outcome is not known yet; it is not subtracted. */
+  checkingClaim?: string;
+};
+
+export function BalanceRow({ balance, checkingClaim }: RowProps) {
   const { colors } = useTheme();
   const { asset, available, pending, claiming, usdPrice } = balance;
-  const empty = isZero(available) && isZero(pending) && isZero(claiming);
+  const empty = isZero(available) && isZero(pending) && isZero(claiming) && !checkingClaim;
 
   const lines = [
     { label: 'Available', amount: available },
@@ -79,8 +85,14 @@ export function BalanceRow({ balance }: { balance: Balance }) {
     <View style={[styles.row, { opacity: empty ? 0.45 : 1 }]}>
       <View style={styles.rowTitle}>
         <Text style={[styles.asset, { color: colors.text }]}>{asset}</Text>
-        <Text style={{ color: colors.primary }}>Claim ›</Text>
+        <Text style={{ color: colors.primary }}>{checkingClaim ? 'Details ›' : 'Claim ›'}</Text>
       </View>
+      {checkingClaim ? (
+        <Text style={[styles.notice, { color: colors.text, borderColor: colors.border }]}>
+          Checking whether your claim of {formatAssetAmount(checkingClaim, asset)} went through. Balance not
+          changed until we know.
+        </Text>
+      ) : null}
       {lines.map(({ label, amount }) => (
         <View key={label} style={styles.line}>
           <Text style={[styles.lineLabel, { color: colors.text }]}>{label}</Text>
@@ -115,6 +127,7 @@ const styles = StyleSheet.create({
   row: { paddingHorizontal: 16, paddingVertical: 12, gap: 6 },
   rowTitle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   asset: { fontSize: 17, fontWeight: '600' },
+  notice: { fontSize: 13, borderWidth: 1, borderRadius: 6, padding: 8 },
   line: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   lineLabel: { width: 76, fontSize: 14, opacity: 0.7 },
   values: { flex: 1, alignItems: 'flex-end' },

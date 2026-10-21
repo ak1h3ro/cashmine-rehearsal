@@ -6,7 +6,8 @@ import { useColorScheme } from 'react-native';
 import { ChangeTokenLink } from '@/components/change-token-link';
 import { queryRetryDelay, shouldRetryQuery } from '@/lib/api';
 import { redirectOnUnauthorized } from '@/lib/auth';
-import { resumeClaims } from '@/lib/claim-sender';
+import { balanceKeys } from '@/lib/balances';
+import { resumeClaims, setOnClaimCreated } from '@/lib/claim-sender';
 import { useToken } from '@/lib/token';
 
 export default function RootLayout() {
@@ -20,6 +21,12 @@ export default function RootLayout() {
         defaultOptions: { queries: { staleTime: 30_000, retry: shouldRetryQuery, retryDelay: queryRetryDelay } },
       }),
   );
+
+  // A confirmed claim: fetch balances at once instead of waiting for the next 15 s tick.
+  useEffect(() => {
+    setOnClaimCreated(() => void queryClient.invalidateQueries({ queryKey: balanceKeys.all }));
+    return () => setOnClaimCreated(undefined);
+  }, [queryClient]);
 
   // Claims whose outcome was unknown when the app closed are retried with
   // their saved key; only the current token's claims (see claim-store).

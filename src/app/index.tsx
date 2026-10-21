@@ -4,11 +4,13 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Tex
 
 import { BalanceRow, BalancesHeader } from '@/components/balances';
 import { Screen } from '@/components/screen';
-import { useBalances } from '@/lib/balances';
+import { useAdjustedBalances } from '@/lib/balances';
+import { isUnresolved, useClaimRecords } from '@/lib/claim-store';
 
 export default function BalancesScreen() {
   const { colors } = useTheme();
-  const { data, isPending, isError, isRefetchError, error, refetch, fetchStatus } = useBalances();
+  const { data, isPending, isError, isRefetchError, error, refetch, fetchStatus } = useAdjustedBalances();
+  const records = useClaimRecords();
   // With the default networkMode 'online', TanStack Query does not fail while the
   // browser is offline: it pauses the fetch until the connection returns.
   const offline = fetchStatus === 'paused';
@@ -46,11 +48,11 @@ export default function BalancesScreen() {
   }
 
   // Full-screen error only when there is nothing to show; a failed refresh keeps the old data.
-  if (isError && !data) {
+  if (!data) {
     return (
       <Screen>
         <View style={styles.center}>
-          <Text style={{ color: colors.text }}>{error.message}</Text>
+          <Text style={{ color: colors.text }}>{isError ? error.message : 'Something went wrong.'}</Text>
           <Pressable onPress={() => void refresh()} disabled={refreshing} style={styles.retry}>
             {refreshing ? <ActivityIndicator /> : <Text style={{ color: colors.primary }}>Retry</Text>}
           </Pressable>
@@ -79,7 +81,10 @@ export default function BalancesScreen() {
         renderItem={({ item }) => (
           <Link href={{ pathname: '/claim/[asset]', params: { asset: item.asset } }} asChild>
             <Pressable>
-              <BalanceRow balance={item} />
+              <BalanceRow
+                balance={item}
+                checkingClaim={records.find((r) => r.asset === item.asset && isUnresolved(r))?.amount}
+              />
             </Pressable>
           </Link>
         )}
