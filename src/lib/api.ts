@@ -51,7 +51,8 @@ const ErrorEnvelopeSchema = z.object({
 
 type RequestOptions = {
   method?: 'GET' | 'POST';
-  body?: unknown;
+  /** JSON text, sent exactly as given so a retried request is byte-identical. */
+  body?: string;
   headers?: Record<string, string>;
   signal?: AbortSignal;
   /** Overrides the stored token, e.g. to check a token before saving it. */
@@ -73,7 +74,7 @@ async function request<T>(path: string, schema: z.ZodType<T>, options: RequestOp
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         ...headers,
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body,
     });
   } catch (error) {
     if (signal?.aborted) throw error;
@@ -124,7 +125,7 @@ export function apiGet<T>(
 
 export function apiPost<T>(
   path: string,
-  body: unknown,
+  body: string,
   schema: z.ZodType<T>,
   options: Pick<RequestOptions, 'headers' | 'signal'> = {},
 ): Promise<T> {

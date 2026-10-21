@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { Screen } from '@/components/screen';
 import { apiGet, isUnauthorized } from '@/lib/api';
+import { resumeClaims } from '@/lib/claim-sender';
 import { setToken, useToken } from '@/lib/token';
 
 const CHECK_TIMEOUT_MS = 10_000;
@@ -41,6 +42,8 @@ export default function TokenScreen() {
     // Data belongs to a token: drop everything cached for the previous one.
     queryClient.clear();
     setToken(token);
+    // Same token re-entered after a 401: pick up its unfinished claims again.
+    resumeClaims();
     setChecking(false);
     router.replace('/');
   }

@@ -67,3 +67,36 @@ export function sumUsd<T extends { usdPrice: string }>(items: readonly T[], amou
 export function isZero(amount: string): boolean {
   return new Big(amount).eq(0);
 }
+
+export type ParsedAmount = { ok: true; value: string } | { ok: false; error: string };
+
+/**
+ * Turns what the user typed into the canonical form the API wants:
+ * trimmed, "," accepted as the decimal separator, normalised by big.js
+ * ("05" -> "5", "0.50" -> "0.5", ".5" -> "0.5"). Signs and exponents are rejected.
+ */
+export function parseAmountInput(input: string): ParsedAmount {
+  const text = input.trim().replace(/,/g, '.');
+  if (text === '') return { ok: false, error: 'Enter an amount.' };
+  if (!/^(\d+(\.\d*)?|\.\d+)$/.test(text)) return { ok: false, error: 'Enter a number like 0.5.' };
+  return { ok: true, value: new Big(text).toFixed() };
+}
+
+type ClaimLimits = { asset: string; decimals: number; minAmount: string; available: string; fee: string };
+
+/** Validates a canonical amount (from parseAmountInput) against the API rules. Returns an error or null. */
+export function validateClaimAmount(amount: string, limits: ClaimLimits): string | null {
+  const { asset, decimals, minAmount, available, fee } = limits;
+  const places = amount.split('.')[1]?.length ?? 0;
+  if (places > decimals) return `${asset} allows at most ${decimals} decimal places.`;
+  const value = new Big(amount);
+  if (value.lt(minAmount)) return `The minimum claim is ${formatAssetAmount(minAmount, asset)}.`;
+  if (value.gt(available)) return `You have ${formatAssetAmount(available, asset)} available.`;
+  if (value.lte(fee)) return `The amount must be more than the fee (${formatAssetAmount(fee, asset)}).`;
+  return null;
+}
+
+/** What the user receives: the fee is taken from the claimed amount. */
+export function receiveAmount(amount: string, fee: string): string {
+  return new Big(amount).minus(fee).toFixed();
+}

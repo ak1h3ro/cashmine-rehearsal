@@ -43,7 +43,7 @@ function onStorage(event: StorageEvent) {
   listeners.forEach((listener) => listener());
 }
 
-function subscribe(listener: () => void) {
+export function subscribeToken(listener: () => void) {
   listeners.add(listener);
   if (listeners.size === 1 && typeof window !== 'undefined') {
     // Keeps several open tabs on the same token.
@@ -58,5 +58,5 @@ function subscribe(listener: () => void) {
 }
 
 export function useToken(): string | null {
-  return useSyncExternalStore(subscribe, getToken, () => null);
+  return useSyncExternalStore(subscribeToken, getToken, () => null);
 }

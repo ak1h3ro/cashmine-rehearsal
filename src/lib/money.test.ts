@@ -6,9 +6,12 @@ import {
   formatAssetAmount,
   formatUsd,
   isZero,
+  parseAmountInput,
+  receiveAmount,
   SignedDecimalStringSchema,
   sumUsd,
   usdValue,
+  validateClaimAmount,
 } from '@/lib/money';
 
 describe('formatAmount', () => {
@@ -97,5 +100,56 @@ describe('decimal string schemas', () => {
     expect(isZero('0')).toBe(true);
     expect(isZero('0.000000')).toBe(true);
     expect(isZero('0.000001')).toBe(false);
+  });
+});
+
+describe('parseAmountInput', () => {
+  it('normalises to the canonical form the API wants', () => {
+    expect(parseAmountInput('05')).toEqual({ ok: true, value: '5' });
+    expect(parseAmountInput('0.50')).toEqual({ ok: true, value: '0.5' });
+    expect(parseAmountInput(' 1,5 ')).toEqual({ ok: true, value: '1.5' });
+    expect(parseAmountInput('.5')).toEqual({ ok: true, value: '0.5' });
+    expect(parseAmountInput('5.')).toEqual({ ok: true, value: '5' });
+    expect(parseAmountInput('0.000000000000000001')).toEqual({ ok: true, value: '0.000000000000000001' });
+  });
+
+  it('rejects empty input, signs, exponents and garbage', () => {
+    for (const bad of ['', '   ', '-1', '+1', '1e-3', '1E3', 'abc', '.', '1.2.3', '1,000.5', 'Infinity', 'NaN']) {
+      expect(parseAmountInput(bad).ok).toBe(false);
+    }
+  });
+});
+
+describe('validateClaimAmount', () => {
+  const limits = { asset: 'ETH', decimals: 4, minAmount: '0.01', available: '1.5', fee: '0.0012' };
+
+  it('accepts amounts within the rules, including both bounds', () => {
+    expect(validateClaimAmount('0.5', limits)).toBeNull();
+    expect(validateClaimAmount('0.01', limits)).toBeNull();
+    expect(validateClaimAmount('1.5', limits)).toBeNull();
+  });
+
+  it('enforces decimals on the canonical value', () => {
+    expect(validateClaimAmount('0.12345', limits)).toMatch(/at most 4 decimal places/);
+    // "0.50000" normalises to "0.5", so trailing zeros never count as extra places.
+    const parsed = parseAmountInput('0.50000');
+    expect(parsed.ok && validateClaimAmount(parsed.value, limits)).toBeNull();
+  });
+
+  it('enforces min and available', () => {
+    expect(validateClaimAmount('0.0099', limits)).toMatch(/minimum/);
+    expect(validateClaimAmount('1.5001', limits)).toMatch(/available/);
+  });
+
+  it('rejects an amount that does not cover the fee', () => {
+    expect(validateClaimAmount('0.0012', { ...limits, minAmount: '0' })).toMatch(/more than the fee/);
+  });
+});
+
+describe('receiveAmount', () => {
+  it('is amount minus fee, exact', () => {
+    expect(receiveAmount('0.5', '0.0012')).toBe('0.4988');
+    expect(receiveAmount('0.3', '0.1')).toBe('0.2');
+    expect(receiveAmount('1.000000000000000001', '0.000000000000000001')).toBe('1');
   });
 });
