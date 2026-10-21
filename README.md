@@ -60,11 +60,16 @@ Builds the web app (`expo export -p web`) and uploads `dist/` to Cloudflare Work
   - `/claims/[id]` follows a claim until it completes or fails and shows the failure reason.
   - Pending claims are also checked every 2.5 s in the background.
 - **Balance right after a claim:** a claim the current snapshot doesn't include yet is taken off available straight away. A still-pending claim is also added to claiming. An older snapshot can't undo this, and a failed claim is no longer subtracted.
+- **Activity:**
+  - History of paybacks, reversals and claims, newest first, opened from the "Activity" link in the Balances header.
+  - Each row shows the type, exchange (when there is one), the signed amount exactly as the server sends it, the status and the date.
+  - Paging uses a "Load more" button, 20 items per page.
+  - A claim row with a claim id opens its tracking screen.
+  - Loading, error with Retry, and empty states are handled.
 - **Tests:** 49 unit tests covering amount parsing and validation, the fee and receive amount, USD totals, the balance adjustment, and the claim sender (retries, idempotency, locking, 409/429/unknown outcomes).
 
 ## What doesn't (yet)
 
-- **Activity** (the paginated history) isn't built.
 - **Pull-to-refresh** doesn't work on web (react-native-web ignores it), so use the Refresh button.
 - **Two open tabs** don't share claim state.
 - **A claim refused in the background** (e.g. after a reload) only shows its message on that asset's Claim screen.

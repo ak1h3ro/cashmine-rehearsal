@@ -1,16 +1,22 @@
 import { Link, useTheme } from 'expo-router';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-/** Header entry that opens the token screen to replace the stored token. */
+/** Balances header: Activity, and Token to replace the stored token. */
 export function ChangeTokenLink() {
   const { colors } = useTheme();
   return (
-    <Link href="/token" style={styles.link}>
-      <Text style={{ color: colors.primary }}>Token</Text>
-    </Link>
+    <View style={styles.links}>
+      <Link href="/activity" style={styles.link}>
+        <Text style={{ color: colors.primary }}>Activity</Text>
+      </Link>
+      <Link href="/token" style={styles.link}>
+        <Text style={{ color: colors.primary }}>Token</Text>
+      </Link>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  link: { paddingHorizontal: 16, paddingVertical: 8 },
+  links: { flexDirection: 'row' },
+  link: { paddingHorizontal: 10, paddingVertical: 8 },
 });
