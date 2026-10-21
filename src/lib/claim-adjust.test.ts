@@ -82,6 +82,20 @@ describe('adjustBalances', () => {
     expect(eth(adjustBalances(snapshot(T0), [created({ status: 'failed' })])).available).toBe('1.5');
   });
 
+  it('takes a completed claim off available but not into claiming on a stale snapshot', () => {
+    const adjusted = eth(adjustBalances(snapshot(T0), [created({ status: 'completed' })]));
+    expect(adjusted.available).toBe('1');
+    expect(adjusted.claiming).toBe('0');
+  });
+
+  it('mixes pending and completed claims on the same asset', () => {
+    const adjusted = eth(
+      adjustBalances(snapshot(T0), [created(), created({ id: 'clm_2', amount: '0.25', status: 'completed' })]),
+    );
+    expect(adjusted.available).toBe('0.75');
+    expect(adjusted.claiming).toBe('0.5');
+  });
+
   it('sums several claims per asset and leaves other assets alone', () => {
     const result = adjustBalances(snapshot(T0), [created(), created({ id: 'clm_2', amount: '0.25' })]);
     expect(eth(result).available).toBe('0.75');

@@ -1,9 +1,8 @@
 import { Link, Stack, useLocalSearchParams, useTheme } from 'expo-router';
-import { useEffect } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
-import { syncClaim } from '@/lib/claim-store';
+import { useClaimRecords } from '@/lib/claim-store';
 import { useClaim } from '@/lib/claims';
 import { formatAssetAmount } from '@/lib/money';
 import { formatTime } from '@/lib/time';
@@ -17,12 +16,10 @@ const STATUS_TEXT = {
 export default function ClaimTrackingScreen() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { data: claim, isPending, isError, error, refetch, isRefetching } = useClaim(id);
-
-  // Feed the latest status to the balance adjustment (a failed claim stops being subtracted).
-  useEffect(() => {
-    if (claim) syncClaim(claim);
-  }, [claim]);
+  // Our own pending claims are polled by PendingClaimsPoller (same query);
+  // poll here only for a claim we have no record of, e.g. an opened link.
+  const ours = useClaimRecords().some((r) => r.state === 'created' && r.claim?.id === id);
+  const { data: claim, isPending, isError, error, refetch, isRefetching } = useClaim(id, !ours);
 
   let content;
   if (isPending) {

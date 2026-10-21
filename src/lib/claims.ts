@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { queryOptions, useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 
 import { apiGet } from '@/lib/api';
@@ -42,11 +42,24 @@ export function useClaimOptions(asset: string) {
   });
 }
 
-/** A pending claim settles within about 20 s; poll until it does. */
-export function useClaim(id: string) {
-  return useQuery({
+/** A pending claim settles within about 20 s. */
+export const CLAIM_POLL_MS = 2500;
+
+/** One definition per claim, shared by the background poller and the tracking screen. */
+export function claimQuery(id: string) {
+  return queryOptions({
     queryKey: claimKeys.detail(id),
     queryFn: ({ signal }) => apiGet(`/v1/claims/${encodeURIComponent(id)}`, ClaimSchema, { signal }),
-    refetchInterval: (query) => (query.state.data?.status === 'pending' ? 2000 : false),
+  });
+}
+
+/**
+ * `poll` is off when the claim is one of ours: the background poller
+ * (PendingClaimsPoller) already refreshes it, so it is not polled twice.
+ */
+export function useClaim(id: string, poll: boolean) {
+  return useQuery({
+    ...claimQuery(id),
+    refetchInterval: (query) => (poll && query.state.data?.status === 'pending' ? CLAIM_POLL_MS : false),
   });
 }

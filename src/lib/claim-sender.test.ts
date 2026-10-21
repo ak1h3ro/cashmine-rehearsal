@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 import { checkAgain, ClaimInProgressError, ClaimNotSavedError, submitClaim } from '@/lib/claim-sender';
-import { currentBucket, readRecords } from '@/lib/claim-store';
+import { currentBucket, readRecords, syncClaim } from '@/lib/claim-store';
+import type { Claim } from '@/lib/claims';
 import { setToken } from '@/lib/token';
 
 jest.mock('expo-router', () => ({ router: { replace: jest.fn() } }));
@@ -169,16 +170,18 @@ describe('submitClaim', () => {
     expect(readRecords(currentBucket()!)).toHaveLength(1);
   });
 
-  it('blocks a new claim while the created one is still pending, not after it settles', async () => {
-    jest.setSystemTime(new Date(CLAIM.createdAt));
+  it('locks the asset while the server reports the claim pending, and frees it once it settles', async () => {
     fetchMock.mockResolvedValue(json(201, CLAIM));
     submitClaim(INPUT, crypto.randomUUID());
     await flush();
+    // No time limit: still locked much later if the status is still pending.
+    jest.advanceTimersByTime(10 * 60_000);
     expect(() => submitClaim(INPUT, crypto.randomUUID())).toThrow(ClaimInProgressError);
     // Other assets are not blocked.
     expect(() => submitClaim({ ...INPUT, asset: 'BTC' }, crypto.randomUUID())).not.toThrow();
 
-    jest.setSystemTime(new Date(Date.parse(CLAIM.createdAt) + 61_000));
+    // What PendingClaimsPoller saves when GET /v1/claims/{id} reports the final status.
+    syncClaim({ ...CLAIM, status: 'completed', updatedAt: '2026-10-21T06:00:27.000Z' } as Claim);
     expect(() => submitClaim(INPUT, crypto.randomUUID())).not.toThrow();
   });
 

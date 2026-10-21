@@ -86,7 +86,7 @@ export function ClaimForm({ asset, decimals, available, options, rejection, onSu
             } catch (e) {
               setSubmitting(false);
               if (e instanceof ClaimInProgressError) {
-                setSaveError(`You already have a ${asset} claim in progress. Wait for it to finish.`);
+                setSaveError(`You already have a claim in progress for ${asset}. Wait for it to finish.`);
               } else if (e instanceof ClaimNotSavedError) {
                 setSaveError(
                   "Couldn't save the claim on this device, so it was not sent. Check that site storage is allowed and try again.",

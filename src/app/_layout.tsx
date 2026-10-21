@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { ChangeTokenLink } from '@/components/change-token-link';
+import { PendingClaimsPoller } from '@/components/pending-claims-poller';
 import { queryRetryDelay, shouldRetryQuery } from '@/lib/api';
 import { redirectOnUnauthorized } from '@/lib/auth';
 import { balanceKeys } from '@/lib/balances';
@@ -36,6 +37,7 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <PendingClaimsPoller />
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
           <Stack.Protected guard={token !== null} redirectTo="/token">

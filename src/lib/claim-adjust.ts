@@ -36,15 +36,17 @@ export function adjustBalances(balances: Balances, records: readonly ClaimRecord
   return {
     ...balances,
     items: balances.items.map((item) => {
-      const amounts = claims.filter((c) => c.asset === item.asset).map((c) => c.amount);
-      if (amounts.length === 0) return item;
-      const total = amounts.reduce((sum, amount) => sum.plus(amount), new Big(0));
-      const available = new Big(item.available).minus(total);
+      const own = claims.filter((c) => c.asset === item.asset);
+      if (own.length === 0) return item;
+      const sum = (list: typeof own) => list.reduce((total, c) => total.plus(c.amount), new Big(0));
+      // Every claim has left available. Only a pending one counts as claiming:
+      // a completed claim has already left claiming too.
+      const available = new Big(item.available).minus(sum(own));
       return {
         ...item,
         // Never show a negative balance if the server already moved part of it.
         available: (available.lt(0) ? new Big(0) : available).toFixed(),
-        claiming: new Big(item.claiming).plus(total).toFixed(),
+        claiming: new Big(item.claiming).plus(sum(own.filter((c) => c.status === 'pending'))).toFixed(),
       };
     }),
   };

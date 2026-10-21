@@ -31,14 +31,12 @@ export class ClaimNotSavedError extends Error {}
 /** The asset already has a claim in flight; a second one is not started. */
 export class ClaimInProgressError extends Error {}
 
-// A created claim settles in about 20 s. The record's status is only refreshed
-// while the tracking screen is open, so do not trust "pending" for longer.
-const BLOCK_CREATED_PENDING_MS = 60_000;
-
-function blocksNewClaim(record: ClaimRecord, now: number): boolean {
-  if (isUnresolved(record)) return true;
-  const claim = record.state === 'created' ? record.claim : undefined;
-  return claim?.status === 'pending' && now - Date.parse(claim.createdAt) < BLOCK_CREATED_PENDING_MS;
+/**
+ * An unconfirmed claim, or a created one the server still reports as pending
+ * (kept current by PendingClaimsPoller), blocks a new claim on that asset.
+ */
+function blocksNewClaim(record: ClaimRecord): boolean {
+  return isUnresolved(record) || (record.state === 'created' && record.claim?.status === 'pending');
 }
 
 let onClaimCreated: (() => void) | undefined;
@@ -68,8 +66,7 @@ export function submitClaim(input: NewClaim, key: string): string {
   const bucket = currentBucket();
   if (!bucket) throw new ClaimNotSavedError('No token');
   if (getRecord(bucket, key)) return key;
-  const now = Date.now();
-  if (readRecords(bucket).some((r) => r.asset === input.asset && blocksNewClaim(r, now))) {
+  if (readRecords(bucket).some((r) => r.asset === input.asset && blocksNewClaim(r))) {
     throw new ClaimInProgressError(`A claim for ${input.asset} is already in progress`);
   }
   const body = JSON.stringify({ asset: input.asset, amount: input.amount, destinationId: input.destinationId });
@@ -85,7 +82,7 @@ export function submitClaim(input: NewClaim, key: string): string {
       state: 'checking',
       uncertain: false,
       attempts: 0,
-      windowStartedAt: now,
+      windowStartedAt: Date.now(),
     });
   } catch {
     throw new ClaimNotSavedError('Could not save the claim');
