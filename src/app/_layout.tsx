@@ -33,6 +33,7 @@ export default function RootLayout() {
         <Stack>
           <Stack.Protected guard={token !== null} redirectTo="/token">
             <Stack.Screen name="index" options={{ title: 'Balances', headerRight: () => <ChangeTokenLink /> }} />
+            <Stack.Screen name="claim/[asset]" options={{ title: 'Claim' }} />
           </Stack.Protected>
           <Stack.Screen name="token" options={{ title: 'API token' }} />
         </Stack>

@@ -1,17 +1,69 @@
 import Big from 'big.js';
+import { z } from 'zod';
 
 /**
- * Formats a decimal amount given as a string (as APIs should send money)
- * without passing through a float. Rounds half-up to `decimals` places.
+ * Money is decimal strings from the API and big.js for arithmetic, never
+ * float. Sums keep full precision; rounding happens only in format functions.
  */
-export function formatAmount(amount: string, currency: string, decimals = 2, locale = 'en-US'): string {
-  const fixed = new Big(amount).toFixed(decimals, Big.roundHalfUp);
-  const [intPart, fracPart] = fixed.split('.');
-  const negative = intPart.startsWith('-');
-  const digits = negative ? intPart.slice(1) : intPart;
+
+/** A non-negative decimal string as the API sends it, e.g. "820.413207". */
+export const DecimalStringSchema = z.string().regex(/^\d+(\.\d+)?$/, 'Expected a decimal string');
+
+/** A signed decimal string (activity amounts are negative for claims and reversals). */
+export const SignedDecimalStringSchema = z.string().regex(/^-?\d+(\.\d+)?$/, 'Expected a decimal string');
+
+function separators(locale: string) {
   const group = new Intl.NumberFormat(locale).formatToParts(1000).find((p) => p.type === 'group')?.value ?? ',';
   const decimal = new Intl.NumberFormat(locale).formatToParts(1.1).find((p) => p.type === 'decimal')?.value ?? '.';
+  return { group, decimal };
+}
+
+/** Groups the integer part of a plain decimal string ("-1234.5" -> "-1,234.5") without touching its digits. */
+function groupDecimal(plain: string, locale: string): string {
+  const [intPart, fracPart] = plain.split('.');
+  const negative = intPart.startsWith('-');
+  const digits = negative ? intPart.slice(1) : intPart;
+  const { group, decimal } = separators(locale);
   const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, group);
   const number = fracPart ? `${grouped}${decimal}${fracPart}` : grouped;
-  return `${negative ? '-' : ''}${number} ${currency}`;
+  return `${negative ? '-' : ''}${number}`;
+}
+
+/**
+ * Formats a decimal amount without passing through a float.
+ * Rounds half-up to `decimals` places.
+ */
+export function formatAmount(amount: Big | string, currency: string, decimals = 2, locale = 'en-US'): string {
+  return `${groupDecimal(new Big(amount).toFixed(decimals, Big.roundHalfUp), locale)} ${currency}`;
+}
+
+/**
+ * Formats an asset amount exactly as the server sent it: grouped, never
+ * rounded, trailing zeros kept. Expects a string validated by the schemas above.
+ */
+export function formatAssetAmount(amount: string, asset: string, locale = 'en-US'): string {
+  return `${groupDecimal(amount, locale)} ${asset}`;
+}
+
+/** USD for display: 2 dp, half-up. A non-zero value that rounds to 0.00 shows as "< 0.01 USD". */
+export function formatUsd(value: Big | string, locale = 'en-US'): string {
+  const usd = new Big(value);
+  if (!usd.eq(0) && usd.abs().lt('0.005')) {
+    return `${usd.lt(0) ? '> -' : '< '}${groupDecimal('0.01', locale)} USD`;
+  }
+  return formatAmount(usd, 'USD', 2, locale);
+}
+
+/** USD value of an amount at full precision. */
+export function usdValue(amount: string, usdPrice: string): Big {
+  return new Big(amount).times(usdPrice);
+}
+
+/** Sum of the USD values of `amount(item)` at full precision. */
+export function sumUsd<T extends { usdPrice: string }>(items: readonly T[], amount: (item: T) => string): Big {
+  return items.reduce((sum, item) => sum.plus(usdValue(amount(item), item.usdPrice)), new Big(0));
+}
+
+export function isZero(amount: string): boolean {
+  return new Big(amount).eq(0);
 }

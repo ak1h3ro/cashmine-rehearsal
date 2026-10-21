@@ -1,6 +1,15 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { formatAmount } from '@/lib/money';
+import {
+  DecimalStringSchema,
+  formatAmount,
+  formatAssetAmount,
+  formatUsd,
+  isZero,
+  SignedDecimalStringSchema,
+  sumUsd,
+  usdValue,
+} from '@/lib/money';
 
 describe('formatAmount', () => {
   it('groups thousands and rounds half-up', () => {
@@ -14,5 +23,79 @@ describe('formatAmount', () => {
 
   it('handles negatives and zero decimals', () => {
     expect(formatAmount('-1000.4', 'USD', 0)).toBe('-1,000 USD');
+  });
+});
+
+describe('formatAssetAmount', () => {
+  it('shows the server string grouped, never rounded', () => {
+    expect(formatAssetAmount('820.413207', 'USDT')).toBe('820.413207 USDT');
+    expect(formatAssetAmount('1234567.000000000000000001', 'ETH')).toBe('1,234,567.000000000000000001 ETH');
+  });
+
+  it('keeps trailing zeros and signs', () => {
+    expect(formatAssetAmount('50.120', 'USDT')).toBe('50.120 USDT');
+    expect(formatAssetAmount('-9.81', 'USDT')).toBe('-9.81 USDT');
+    expect(formatAssetAmount('0', 'BTC')).toBe('0 BTC');
+  });
+});
+
+describe('usdValue and formatUsd', () => {
+  it('multiplies at full precision', () => {
+    expect(usdValue('0.0005', '67000.12').toFixed()).toBe('33.50006');
+    expect(usdValue('820.413207', '1.0002').toFixed()).toBe('820.5772896414');
+  });
+
+  it('rounds to 2 dp only for display', () => {
+    expect(formatUsd(usdValue('820.413207', '1.0002'))).toBe('820.58 USD');
+    expect(formatUsd('0.005')).toBe('0.01 USD');
+    expect(formatUsd('0')).toBe('0.00 USD');
+  });
+
+  it('does not show a tiny non-zero value as zero', () => {
+    expect(formatUsd(usdValue('0.00000001', '0.5'))).toBe('< 0.01 USD');
+  });
+});
+
+describe('sumUsd', () => {
+  const items = [
+    { available: '0.1', usdPrice: '1' },
+    { available: '0.2', usdPrice: '1' },
+    { available: '0.0005', usdPrice: '67000.12' },
+  ];
+
+  it('sums without float error', () => {
+    // 0.1 + 0.2 is 0.30000000000000004 in float.
+    expect(sumUsd(items.slice(0, 2), (b) => b.available).toFixed()).toBe('0.3');
+    expect(sumUsd(items, (b) => b.available).toFixed()).toBe('33.80006');
+  });
+
+  it('rounds the total once, not each term', () => {
+    // Each term rounds down to 0.00, but the sum is 0.012.
+    const tiny = [1, 2, 3].map(() => ({ available: '0.004', usdPrice: '1' }));
+    expect(formatUsd(sumUsd(tiny, (b) => b.available))).toBe('0.01 USD');
+  });
+
+  it('is zero for an empty list', () => {
+    expect(sumUsd([], () => '0').toFixed()).toBe('0');
+  });
+});
+
+describe('decimal string schemas', () => {
+  it('accepts API amounts', () => {
+    expect(DecimalStringSchema.safeParse('0.0005').success).toBe(true);
+    expect(DecimalStringSchema.safeParse('12').success).toBe(true);
+    expect(SignedDecimalStringSchema.safeParse('-9.81').success).toBe(true);
+  });
+
+  it('rejects numbers, exponents and malformed strings', () => {
+    for (const bad of [0.5, '1e-3', '.5', '1.', '', ' 1', '-1']) {
+      expect(DecimalStringSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it('isZero handles any representation of zero', () => {
+    expect(isZero('0')).toBe(true);
+    expect(isZero('0.000000')).toBe(true);
+    expect(isZero('0.000001')).toBe(false);
   });
 });
