@@ -1,15 +1,8 @@
 name = "cashmine-rehearsal"
 compatibility_date = "2026-10-01"
-main = "worker/index.ts"
 
-# Public upstream base URL. The matching API_TOKEN is a secret and must never
-# be committed here: `wrangler secret put API_TOKEN` (prod), .dev.vars (local).
-[vars]
-UPSTREAM_URL = "https://jsonplaceholder.typicode.com"
-
+# Static assets only: the app calls the API directly from the browser (CORS is
+# open) with the token the user enters, so there is no Worker script and no secret.
 [assets]
 directory = "./dist"
-binding = "ASSETS"
 not_found_handling = "single-page-application"
-# API paths must reach the Worker before the SPA fallback swallows them.
-run_worker_first = ["/api/*"]

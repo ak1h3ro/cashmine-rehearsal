@@ -48,7 +48,6 @@
     "lint": "expo lint",
     "test": "jest",
     "typecheck": "tsc --noEmit",
-    "dev:api": "wrangler dev",
     "build": "expo export -p web",
     "deploy": "expo export -p web && wrangler deploy"
   },
