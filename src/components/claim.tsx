@@ -3,7 +3,7 @@ import { useTheme } from 'expo-router';
 import { useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { checkAgain, ClaimNotSavedError, submitClaim } from '@/lib/claim-sender';
+import { checkAgain, ClaimInProgressError, ClaimNotSavedError, submitClaim } from '@/lib/claim-sender';
 import type { ClaimRecord } from '@/lib/claim-store';
 import type { ClaimOptions } from '@/lib/claims';
 import { formatAssetAmount, parseAmountInput, receiveAmount, validateClaimAmount } from '@/lib/money';
@@ -33,6 +33,10 @@ export function ClaimForm({ asset, decimals, available, options, rejection, onSu
   const [touched, setTouched] = useState(false);
   const [destinationId, setDestinationId] = useState(options.destinations[0]?.id);
   const [step, setStep] = useState<'edit' | 'confirm'>('edit');
+  // One Idempotency-Key per confirm step: a second press reuses it. Going back
+  // to edit drops it, since a changed body must not reuse a key.
+  const [claimKey, setClaimKey] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const parsed = parseAmountInput(amountText);
@@ -48,7 +52,7 @@ export function ClaimForm({ asset, decimals, available, options, rejection, onSu
     return <Text style={[styles.message, { color: colors.text }]}>No destination is set up for {asset}.</Text>;
   }
 
-  if (step === 'confirm' && parsed.ok && destination) {
+  if (step === 'confirm' && claimKey && parsed.ok && destination) {
     const amount = parsed.value;
     const receive = receiveAmount(amount, options.fee);
     return (
@@ -62,28 +66,45 @@ export function ClaimForm({ asset, decimals, available, options, rejection, onSu
         {saveError ? <Text style={{ color: colors.notification }}>{saveError}</Text> : null}
         <PrimaryButton
           label="Confirm claim"
-          disabled={!online}
+          disabled={!online || submitting}
           onPress={() => {
+            setSubmitting(true);
             try {
               onSubmitted(
-                submitClaim({
-                  asset,
-                  amount,
-                  destinationId: destination.id,
-                  destinationLabel: destination.label,
-                  fee: options.fee,
-                  receiveAmount: receive,
-                }),
+                submitClaim(
+                  {
+                    asset,
+                    amount,
+                    destinationId: destination.id,
+                    destinationLabel: destination.label,
+                    fee: options.fee,
+                    receiveAmount: receive,
+                  },
+                  claimKey,
+                ),
               );
             } catch (e) {
-              if (!(e instanceof ClaimNotSavedError)) throw e;
-              setSaveError(
-                "Couldn't save the claim on this device, so it was not sent. Check that site storage is allowed and try again.",
-              );
+              setSubmitting(false);
+              if (e instanceof ClaimInProgressError) {
+                setSaveError(`You already have a ${asset} claim in progress. Wait for it to finish.`);
+              } else if (e instanceof ClaimNotSavedError) {
+                setSaveError(
+                  "Couldn't save the claim on this device, so it was not sent. Check that site storage is allowed and try again.",
+                );
+              } else {
+                throw e;
+              }
             }
           }}
         />
-        <Pressable onPress={() => setStep('edit')} style={styles.secondaryButton}>
+        <Pressable
+          onPress={() => {
+            setClaimKey(null);
+            setStep('edit');
+          }}
+          disabled={submitting}
+          style={styles.secondaryButton}
+        >
           <Text style={{ color: colors.primary }}>Back</Text>
         </Pressable>
       </View>
@@ -160,6 +181,7 @@ export function ClaimForm({ asset, decimals, available, options, rejection, onSu
         disabled={!canContinue}
         onPress={() => {
           setSaveError(null);
+          setClaimKey(crypto.randomUUID());
           setStep('confirm');
         }}
       />
@@ -180,7 +202,7 @@ export function ClaimChecking({ record }: { record: ClaimRecord }) {
       </Text>
       <Text style={[styles.message, { color: colors.text }]}>
         {stalled
-          ? "Couldn't confirm yet. Check again or look at Activity later. It won't be sent twice."
+          ? "Couldn't confirm yet. Check again or check your balance later. It won't be sent twice."
           : record.uncertain
             ? "We're checking whether your claim went through. It won't be sent twice."
             : 'Sending…'}

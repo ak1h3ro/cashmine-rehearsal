@@ -1,6 +1,14 @@
 import { ApiError, apiPost } from '@/lib/api';
 import { redirectOnUnauthorized } from '@/lib/auth';
-import { addRecord, currentBucket, getRecord, isUnresolved, readRecords, updateRecord } from '@/lib/claim-store';
+import {
+  addRecord,
+  type ClaimRecord,
+  currentBucket,
+  getRecord,
+  isUnresolved,
+  readRecords,
+  updateRecord,
+} from '@/lib/claim-store';
 import { ClaimSchema } from '@/lib/claims';
 
 /**
@@ -20,6 +28,19 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export class ClaimNotSavedError extends Error {}
 
+/** The asset already has a claim in flight; a second one is not started. */
+export class ClaimInProgressError extends Error {}
+
+// A created claim settles in about 20 s. The record's status is only refreshed
+// while the tracking screen is open, so do not trust "pending" for longer.
+const BLOCK_CREATED_PENDING_MS = 60_000;
+
+function blocksNewClaim(record: ClaimRecord, now: number): boolean {
+  if (isUnresolved(record)) return true;
+  const claim = record.state === 'created' ? record.claim : undefined;
+  return claim?.status === 'pending' && now - Date.parse(claim.createdAt) < BLOCK_CREATED_PENDING_MS;
+}
+
 let onClaimCreated: (() => void) | undefined;
 
 /** Called whenever a claim is confirmed to exist (used to refetch balances at once). */
@@ -36,11 +57,21 @@ type NewClaim = {
   receiveAmount: string;
 };
 
-/** Saves the claim, then sends it. Throws ClaimNotSavedError (and sends nothing) if it cannot be saved. */
-export function submitClaim(input: NewClaim): string {
+/**
+ * Saves the claim, then sends it. `key` is created once when the confirm step
+ * opens, so pressing Confirm twice reuses it: an already saved key is neither
+ * saved nor sent again.
+ * Throws ClaimInProgressError if the asset already has a claim in flight, and
+ * ClaimNotSavedError (sending nothing) if the claim cannot be saved.
+ */
+export function submitClaim(input: NewClaim, key: string): string {
   const bucket = currentBucket();
   if (!bucket) throw new ClaimNotSavedError('No token');
-  const key = crypto.randomUUID();
+  if (getRecord(bucket, key)) return key;
+  const now = Date.now();
+  if (readRecords(bucket).some((r) => r.asset === input.asset && blocksNewClaim(r, now))) {
+    throw new ClaimInProgressError(`A claim for ${input.asset} is already in progress`);
+  }
   const body = JSON.stringify({ asset: input.asset, amount: input.amount, destinationId: input.destinationId });
   try {
     addRecord(bucket, {
@@ -54,7 +85,7 @@ export function submitClaim(input: NewClaim): string {
       state: 'checking',
       uncertain: false,
       attempts: 0,
-      windowStartedAt: Date.now(),
+      windowStartedAt: now,
     });
   } catch {
     throw new ClaimNotSavedError('Could not save the claim');
